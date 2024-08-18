@@ -1,3 +1,6 @@
+This project explored the real data of Free Code Camp which contains two columns: the first being the date and the second the number of the website page views for that day. 
+The task was to plot a linegraph, barplot and a boxplot of the data.
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
