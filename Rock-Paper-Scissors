@@ -1,0 +1,166 @@
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+import random
+
+# Initialize the model
+model = Sequential([
+    Dense(64, input_shape=(3,), activation='relu'),
+    Dense(64, activation='relu'),
+    Dense(3, activation='softmax')
+])
+
+# Compile the model
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+# Training data generation
+def generate_data(n_samples=1000):
+    X = []
+    y = []
+    for _ in range(n_samples):
+        opponent_move = random.choice([0, 1, 2])
+        X.append(opponent_move)  # Use the opponent's move as input
+        if opponent_move == 0:
+            y.append(1)  # Predict Paper for Rock
+        elif opponent_move == 1:
+            y.append(2)  # Predict Scissors for Paper
+        else:
+            y.append(0)  # Predict Rock for Scissors
+    return np.array(X), np.array(y)
+
+X, y = generate_data(1000)
+
+X_encoded = np.eye(3)[X]  # One-hot encode the moves
+y_encoded = np.eye(3)[y]  # One-hot encode the targets
+
+# Train the model
+model.fit(X_encoded, y_encoded, epochs=500, verbose=0)
+
+# Player strategies
+def quincy(prev_play, counter=[0]):
+    counter[0] += 1
+    choices = ["R", "R", "P", "P", "S"]
+    return choices[counter[0] % len(choices)]
+
+def mrugesh(prev_opponent_play, opponent_history=[]):
+    opponent_history.append(prev_opponent_play)
+    last_ten = opponent_history[-10:]
+    most_frequent = max(set(last_ten), key=last_ten.count)
+    
+    if most_frequent == '':
+        most_frequent = "S"
+        
+    ideal_response = {'P': 'S', 'R': 'P', 'S': 'R'}
+    return ideal_response[most_frequent]
+
+def kris(prev_opponent_play):
+    if prev_opponent_play == '':
+        prev_opponent_play = "R"
+    ideal_response = {'P': 'S', 'R': 'P', 'S': 'R'}
+    return ideal_response[prev_opponent_play]
+
+def abbey(prev_opponent_play, opponent_history=[],
+          play_order=[{
+              "RR": 0,
+              "RP": 0,
+              "RS": 0,
+              "PR": 0,
+              "PP": 0,
+              "PS": 0,
+              "SR": 0,
+              "SP": 0,
+              "SS": 0,
+          }]):
+
+    if not prev_opponent_play:
+        prev_opponent_play = 'R'
+    opponent_history.append(prev_opponent_play)
+
+    last_two = "".join(opponent_history[-2:])
+    if len(last_two) == 2:
+        play_order[0][last_two] += 1
+
+    potential_plays = [
+        prev_opponent_play + "R",
+        prev_opponent_play + "P",
+        prev_opponent_play + "S",
+    ]
+
+    sub_order = {
+        k: play_order[0][k]
+        for k in potential_plays if k in play_order[0]
+    }
+
+    prediction = max(sub_order, key=sub_order.get)[-1:]
+
+    ideal_response = {'P': 'S', 'R': 'P', 'S': 'R'}
+    return ideal_response[prediction]
+
+# Enhanced player function with refined strategy detection and counter-strategies
+def player(prev_play, opponent_history=[], counter=[0], strategy="unknown"):
+    move_encoding = {'R': 0, 'P': 1, 'S': 2}
+    move_decoding = {0: 'R', 1: 'P', 2: 'S'}
+
+    if prev_play != "":
+        opponent_history.append(prev_play)
+
+    # Detect strategy if not known
+    if strategy == "unknown":
+        if len(opponent_history) >= 10:
+            recent_history = opponent_history[-10:]
+            
+            # Detect Quincy
+            if recent_history[:5] == ['R', 'R', 'P', 'P', 'S']:
+                strategy = "quincy"
+            
+            # Detect Mrugesh
+            elif recent_history[-5:].count('R') > 3 or \
+                 recent_history[-5:].count('P') > 3 or \
+                 recent_history[-5:].count('S') > 3:
+                strategy = "mrugesh"
+            
+            # Detect Kris
+            elif len(opponent_history) >= 2 and \
+                 recent_history[-1] == recent_history[-2]:
+                strategy = "kris"
+            
+            # Detect Abbey
+            elif len(opponent_history) >= 2:
+                last_two = "".join(opponent_history[-2:])
+                if last_two in ["RR", "RP", "RS", "PR", "PP", "PS", "SR", "SP", "SS"]:
+                    strategy = "abbey"
+            
+            # Fallback to default strategy
+            else:
+                strategy = "default"
+
+    if strategy == "quincy":
+        return quincy(prev_play, counter)
+    elif strategy == "mrugesh":
+        return mrugesh(prev_play, opponent_history)
+    if strategy == "kris":
+        if len(opponent_history) >= 1:
+            last_play = opponent_history[-1]
+            if last_play == 'R':
+                return 'P'
+            elif last_play == 'P':
+                return 'S'
+            elif last_play == 'S':
+                return 'R'
+        return 'R'  # Default start move
+    elif strategy == "abbey":
+        return abbey(prev_play, opponent_history)
+    else:
+        # Use the model to predict the opponent's next move
+        if len(opponent_history) < 1:
+            return "R"
+        
+        last_move = move_encoding[prev_play]
+        input_data = np.eye(3)[last_move].reshape(1, 3)
+        prediction = model.predict(input_data)
+        predicted_move = np.argmax(prediction)
+        
+        # Determine the winning move against the predicted move
+        return move_decoding[(predicted_move + 1) % 3]
+    
